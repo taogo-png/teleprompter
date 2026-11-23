@@ -13,6 +13,7 @@ import * as Network from 'expo-network';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Pip from './modules/teleprompter-pip';
 
 const PORT = 3333;
 const DEMO =
@@ -119,6 +120,10 @@ function Prompter() {
   const [torch, setTorch] = useState(false);
   const [codecs, setCodecs] = useState([]);
   const [active, setActive] = useState(null); // o que a câmera realmente escolheu
+  const [pipOn, setPipOn] = useState(false);
+  const pipOnRef = useRef(false);
+  pipOnRef.current = pipOn;
+  const pipSupported = Pip.isSupported();
 
   const device = useCameraDevice(
     facing,
@@ -255,6 +260,45 @@ function Prompter() {
     if (c === 'fwd') pos.current = Math.min(maxPos(), pos.current + boxH.current * 0.5);
     paint();
   }, []);
+
+  // ---------- janela flutuante (Picture-in-Picture) ----------
+  // posição (em caracteres) de cada palavra, para o modo voz
+  const wordStarts = useRef([]);
+  useEffect(() => {
+    const out = [];
+    const re = /\S+/g;
+    let m;
+    while ((m = re.exec(text))) out.push(m.index);
+    wordStarts.current = out;
+  }, [text]);
+
+  useEffect(() => {
+    if (!pipSupported) return;
+    Pip.update({ text, fontSize: size, speed });
+  }, [text, size, speed, pipSupported]);
+  useEffect(() => { if (pipSupported) Pip.update({ playing }); }, [playing, pipSupported]);
+  useEffect(() => {
+    if (!pipSupported) return;
+    const a = Pip.addListener('onPlayingChange', (e) => {
+      const p = !!e?.playing;
+      setPlaying(p);
+      if (host) call(host, '/state', { playing: p, from: 'phone' }).catch(() => {});
+    });
+    const b = Pip.addListener('onActiveChange', (e) => setPipOn(!!e?.active));
+    return () => { a.remove(); b.remove(); };
+  }, [pipSupported, host]);
+
+  const startPip = async () => {
+    if (!pipSupported) { setNotice('Este iPhone não suporta janela flutuante.'); return; }
+    if (recordingRef.current) { setNotice('Pare a gravação antes de usar a janela flutuante.'); return; }
+    Pip.update({ text, fontSize: size, speed, playing, follow: follow.current.on, followChar: wordStarts.current[follow.current.word] || 0 });
+    try {
+      const ok = await Pip.start();
+      if (ok) setNotice('Janela flutuante aberta. Agora abra o app em que vai gravar.');
+    } catch (e) {
+      setNotice('Não deu para abrir a janela flutuante.');
+    }
+  };
 
   // ---------- câmera: codec, exposição, foco ----------
   const onConfigured = useCallback(() => {
@@ -400,12 +444,14 @@ function Prompter() {
         }
         const f = s.follow || {};
         if (!!f.on !== follow.current.on) setFollowing(!!f.on);
+        const changed = !!f.on !== follow.current.on || (f.word || 0) !== follow.current.word;
         follow.current = { on: !!f.on, word: f.word || 0 };
+        if (changed && pipSupported) Pip.update({ follow: follow.current.on, followChar: wordStarts.current[follow.current.word] || 0 });
         if (sync.current.cmd === -1) sync.current.cmd = s.cmdSeq;
         else if (s.cmdSeq > sync.current.cmd) {
           sync.current.cmd = s.cmdSeq;
-          if (s.cmd === 'rec') recRef.current();
-          else jump(s.cmd);
+          if (s.cmd === 'rec') { if (!pipOnRef.current) recRef.current(); }
+          else { jump(s.cmd); if (pipSupported) Pip.update({ jump: s.cmd }); }
         }
       } catch (e) {
         if (!alive) return;
@@ -521,7 +567,7 @@ function Prompter() {
           ref={cam}
           style={StyleSheet.absoluteFill}
           device={device}
-          isActive
+          isActive={!pipOn}
           outputs={[videoOutput]}
           constraints={constraints}
           exposure={exposure}
@@ -610,6 +656,7 @@ function Prompter() {
           </Pressable>
           <Btn label="✎" onPress={() => setEditOpen(true)} />
           <Btn label="⚙" onPress={() => setSettingsOpen(true)} />
+          {pipSupported && <Btn label="⧉" onPress={() => (pipOn ? Pip.stop() : startPip())} primary={pipOn} />}
         </View>
       </View>
 
