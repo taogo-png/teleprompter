@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Teleprompter · controle</title>
+<style>
+:root{--bg:#0d0d0e;--panel:#18181a;--ink:#ececec;--mute:#8d8d92;--line:#2a2a2e;--red:#e5251b;--ok:#2fa84f}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+button,textarea{font:inherit;color:inherit}
+button{min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #33333a;background:#232327;cursor:pointer;font-weight:500;white-space:nowrap}
+button:focus-visible,textarea:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-offset:2px}
+button.primary{background:var(--red);border-color:var(--red);color:#fff}
+main{max-width:1240px;margin:0 auto;padding:28px max(4vw,16px)}
+.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:center;justify-content:space-between;margin-bottom:20px}
+h1{font-size:30px;line-height:1.05;margin:0}
+.tally{display:inline-flex;align-items:center;gap:8px;font-size:14px;color:var(--mute)}
+.tally i{width:12px;height:12px;border-radius:50%;background:#444}
+.tally.on i{background:var(--ok)}.tally.rec i{background:var(--red);animation:b 1s infinite}
+@keyframes b{50%{opacity:.3}}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:20px}
+textarea{width:100%;min-height:68vh;resize:vertical;padding:20px;border-radius:14px;border:1px solid var(--line);background:var(--panel);font-size:18px;line-height:1.6}
+.meta{font-size:13px;color:var(--mute);margin-top:8px}
+.console{background:#111113;border:1px solid var(--line);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:16px;align-self:start;position:sticky;top:16px}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row>button{flex:1}
+.big{font-size:18px;min-height:56px}
+.rec{background:#2a1110;border-color:var(--red);color:#fff}
+.rec.on{background:var(--red)}
+label{display:flex;justify-content:space-between;font-size:14px;color:#a5a5ab;margin-bottom:4px}
+label b{color:#fff;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--red);height:32px}
+.prog{height:6px;background:#2a2a2e;border-radius:3px;overflow:hidden}.prog i{display:block;height:100%;width:0;background:var(--red);transition:width .4s}
+.voice{background:#16201a;border-color:var(--ok)}.voice.on{background:var(--ok);color:#fff}
+.heard{font-size:13px;color:#a5a5ab;min-height:20px;margin-top:-6px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.how{font-size:14px;color:#a5a5ab;margin:0;padding-left:18px}
+kbd{font-size:12px;border:1px solid #44444a;border-radius:4px;padding:1px 5px}
+@media(max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}.console{position:static}textarea{min-height:40vh}}
+</style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <h1>Teleprompter · controle</h1>
+    <span class="tally" id="tally"><i></i><span id="tallyTxt">Aguardando o iPhone…</span></span>
+  </div>
+  <div class="grid">
+    <div>
+      <textarea id="ed" placeholder="Cole ou escreva o roteiro aqui. Ele aparece no iPhone em tempo real."></textarea>
+      <div class="meta" id="meta">0 palavras</div>
+    </div>
+    <aside class="console">
+      <button class="rec big" id="rec">● Gravar no iPhone</button>
+      <button class="voice big" id="voice">🎙 Seguir minha voz</button>
+      <div class="heard" id="heard"></div>
+      <button class="primary big" id="play">▶ Rodar texto</button>
+      <div class="prog"><i id="prog"></i></div>
+      <div class="row">
+        <button id="top">⏮ Início</button>
+        <button id="back">↑ Voltar</button>
+        <button id="fwd">↓ Avançar</button>
+      </div>
+      <div><label for="speed">Velocidade <b id="speedV">4</b></label><input type="range" id="speed" min="1" max="12" step="0.5" value="4"></div>
+      <div><label for="size">Tamanho da letra <b id="sizeV">32</b></label><input type="range" id="size" min="18" max="80" step="2" value="32"></div>
+      <ol class="how">
+        <li><b>Seguir minha voz</b> usa o microfone do PC (Chrome ou Edge): o texto anda conforme você fala, pula trechos e volta se você repetir.</li>
+        <li>O roteiro fica salvo em <b>pc/roteiro.txt</b>.</li>
+        <li>Atalhos fora do editor: <kbd>espaço</kbd> rodar/pausar, <kbd>R</kbd> gravar/parar, <kbd>↑</kbd><kbd>↓</kbd> velocidade, <kbd>Home</kbd> início.</li>
+      </ol>
+    </aside>
+  </div>
+</main>
+<script>
+{
+const $=id=>document.getElementById(id);
+let S={playing:false,speed:4,size:32},loaded=false,lastRev=0,phoneRec=false;
+const post=(p,b)=>fetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}).then(r=>r.json()).catch(()=>null);
+function render(){
+  $('play').textContent=S.playing?'❚❚ Pausar texto':'▶ Rodar texto';
+  $('speed').value=S.speed;$('speedV').textContent=S.speed;
+  $('size').value=S.size;$('sizeV').textContent=S.size;
+}
+function meta(){const w=($('ed').value.trim().match(/\S+/g)||[]).length;$('meta').textContent=w+' palavras · cerca de '+Math.max(1,Math.round(w/140))+' min de leitura'}
+async function poll(){
+  try{
+    const s=await fetch('/state',{cache:'no-store'}).then(r=>r.json());
+    if(!loaded){$('ed').value=s.text||'';meta();loaded=true}
+    if(s.rev!==lastRev){lastRev=s.rev;S={playing:s.playing,speed:s.speed,size:s.size};render()}
+    const p=s.phone||{};phoneRec=!!p.recording;
+    $('tally').className='tally'+(p.online?(p.recording?' rec':' on'):'');
+    $('tallyTxt').textContent=p.online?(p.recording?'Gravando no iPhone':'iPhone conectado'):'Aguardando o iPhone…';
+    $('prog').style.width=((p.progress||0)*100)+'%';
+    $('rec').className='rec big'+(phoneRec?' on':'');
+    $('rec').textContent=phoneRec?'■ Parar gravação':'● Gravar no iPhone';
+  }catch(e){$('tally').className='tally';$('tallyTxt').textContent='Servidor desligado'}
+}
+setInterval(poll,500);poll();
+async function set(p){Object.assign(S,p);render();const r=await post('/state',p);if(r)lastRev=r.rev}
+let t;
+$('ed').addEventListener('input',()=>{meta();clearTimeout(t);t=setTimeout(()=>post('/state',{text:$('ed').value}).then(r=>{if(r)lastRev=r.rev}),300)});
+$('play').onclick=()=>set({playing:!S.playing});
+$('rec').onclick=()=>post('/cmd',{c:'rec'});
+$('top').onclick=()=>{S.playing=false;render();post('/cmd',{c:'top'})};
+$('back').onclick=()=>post('/cmd',{c:'back'});
+$('fwd').onclick=()=>post('/cmd',{c:'fwd'});
+$('speed').oninput=e=>set({speed:+e.target.value});
+$('size').oninput=e=>set({size:+e.target.value});
+/* ---------- seguir a voz ---------- */
+const norm=w=>w.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,'');
+let words=[],cur=0,heardN=0,rec=null,voiceOn=false,lastSent=-1;
+function indexScript(){words=[];($('ed').value.match(/\S+/g)||[]).forEach((w,i)=>{const n=norm(w);if(n)words.push({n,i})})}
+const same=(a,b)=>a===b||(a.length>3&&b.length>3&&(a.startsWith(b)||b.startsWith(a)))||(a.length>5&&b.length>5&&a.slice(0,5)===b.slice(0,5));
+function score(spoken,j){let sc=0;for(let k=0;k<spoken.length&&j-k>=0;k++){if(same(spoken[spoken.length-1-k],words[j-k].n))sc+=1/(1+k*.15)}return sc}
+function locate(spoken){
+  if(!words.length||!spoken.length)return;
+  let best=-1,bs=0;
+  const scan=(a,b)=>{for(let j=Math.max(0,a);j<=Math.min(words.length-1,b);j++){const sc=score(spoken,j)-Math.abs(j-cur)*.004;if(sc>bs){bs=sc;best=j}}};
+  scan(cur-4,cur+40);
+  const need=spoken.length>=3?1.8:spoken.length===2?1.6:.95;
+  if(bs<need){bs=0;best=-1;scan(0,words.length-1);if(bs<Math.min(2.6,spoken.length*.85))return}
+  cur=best+1;
+  const raw=words[best].i;
+  if(raw!==lastSent){lastSent=raw;post('/follow',{word:raw})}
+}
+function startVoice(){
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!SR){$('heard').textContent='Este navegador não reconhece fala. Use Chrome ou Edge.';return}
+  indexScript();cur=0;lastSent=-1;
+  rec=new SR();rec.lang='pt-BR';rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=1;
+  rec.onresult=e=>{
+    let t='';for(let i=e.resultIndex;i<e.results.length;i++)t+=e.results[i][0].transcript+' ';
+    $('heard').textContent='Ouvindo: '+t.trim().slice(-80);
+    const sp=(t.match(/\S+/g)||[]).map(norm).filter(Boolean).slice(-6);
+    locate(sp);
+  };
+  rec.onerror=e=>{if(e.error==='not-allowed'){$('heard').textContent='Permita o microfone no navegador.';stopVoice()}};
+  rec.onend=()=>{if(voiceOn)try{rec.start()}catch(_){}};
+  try{rec.start()}catch(_){}
+  voiceOn=true;$('voice').classList.add('on');$('voice').textContent='🎙 Seguindo sua voz · parar';
+  set({playing:false});post('/follow',{on:true,word:0});
+}
+function stopVoice(){voiceOn=false;try{rec&&rec.stop()}catch(_){}$('voice').classList.remove('on');$('voice').textContent='🎙 Seguir minha voz';post('/follow',{on:false})}
+$('voice').onclick=()=>voiceOn?stopVoice():startVoice();
+$('ed').addEventListener('input',()=>{if(voiceOn)indexScript()});
+$('top').addEventListener('click',()=>{cur=0;lastSent=-1;if(voiceOn)post('/follow',{word:0})});
+window.addEventListener('beforeunload',()=>{if(voiceOn)navigator.sendBeacon&&navigator.sendBeacon('/follow',new Blob([JSON.stringify({on:false})],{type:'application/json'}))});
+document.addEventListener('keydown',e=>{
+  if(e.target===$('ed')||e.target.tagName==='INPUT')return;
+  if(e.code==='Space'){e.preventDefault();$('play').click()}
+  else if(e.key==='r'||e.key==='R'){$('rec').click()}
+  else if(e.key==='ArrowUp'){e.preventDefault();set({speed:Math.min(12,S.speed+.5)})}
+  else if(e.key==='ArrowDown'){e.preventDefault();set({speed:Math.max(1,S.speed-.5)})}
+  else if(e.key==='Home'){$('top').click()}
+});
+}
+</script>
+</body>
+</html>

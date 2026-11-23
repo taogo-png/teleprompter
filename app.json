@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "Teleprompter",
+    "slug": "teleprompter",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.highpixel.teleprompter",
+      "infoPlist": {
+        "NSCameraUsageDescription": "O Teleprompter usa a câmera para gravar seus vídeos.",
+        "NSMicrophoneUsageDescription": "O Teleprompter usa o microfone para gravar o áudio dos vídeos.",
+        "NSLocalNetworkUsageDescription": "O Teleprompter se conecta ao painel no seu PC pela rede local.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
